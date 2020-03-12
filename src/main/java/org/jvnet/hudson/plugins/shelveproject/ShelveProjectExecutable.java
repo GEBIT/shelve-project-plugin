@@ -4,10 +4,12 @@ import com.cloudbees.hudson.plugins.folder.AbstractFolder;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.FilePath;
 import hudson.Plugin;
+import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.Item;
 import hudson.model.Executor;
 import hudson.model.ItemGroup;
+import hudson.model.Node;
 import hudson.model.Queue;
 import hudson.util.DirScanner;
 import hudson.util.io.ArchiverFactory;
@@ -19,6 +21,8 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -177,6 +181,7 @@ public class ShelveProjectExecutable implements Queue.Executable {
     LOGGER.info("Wiping out workspace for project [" + item.getFullName() + "].");
     try {
       if (item instanceof AbstractProject<?, ?> ap) {
+        setLocalBuild(ap);
         ap.doDoWipeOutWorkspace();
       }
       // there is no API to do this in the case of Pipelines: https://issues.jenkins-ci.org/browse/JENKINS-26138
@@ -185,9 +190,47 @@ public class ShelveProjectExecutable implements Queue.Executable {
     }
   }
 
+  /**
+   * Marks the last build of this project as being built on the Jenkins master so that
+   * workspace deletion may succeed (if master and e.g. a docker node share the same workspace volume).
+   * @param aProject
+   * @throws SecurityException 
+   * @throws NoSuchMethodException 
+   * @throws InvocationTargetException 
+   * @throws IllegalArgumentException 
+   * @throws IllegalAccessException 
+   */
+  private void setLocalBuild(AbstractProject project) throws IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
+    AbstractBuild lastBuild = project.getLastBuild();
+    if (lastBuild != null && isBuiltOnUnavailableSlave(lastBuild)) {
+    LOGGER.info("Attempting to mark build as built locally, so that deleting its workspace may work.");
+    Method tempMethod = AbstractBuild.class.getDeclaredMethod("setBuiltOnStr", new Class[] {
+        String.class
+    });
+    tempMethod.setAccessible(true);
+    tempMethod.invoke(lastBuild, new Object[] {
+        null
+    });
+    }
+  }
+  
+  private boolean isBuiltOnUnavailableSlave(AbstractBuild aBuild) {
+    String tempBuiltOnStr = aBuild.getBuiltOnStr();
+    if (tempBuiltOnStr != null && tempBuiltOnStr.length() > 0) {
+      Node tempNode = aBuild.getBuiltOn();
+      if (tempNode == null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private void deleteProject() {
     LOGGER.info("Deleting project [" + item.getFullName() + "].");
     try {
+      if (item instanceof AbstractProject) {
+        setLocalBuild((AbstractProject) item);
+      }
       item.delete();
     } catch (Exception e) {
       LOGGER.log(Level.SEVERE, "Could not delete project [" + item.getFullName() + "].", e);
