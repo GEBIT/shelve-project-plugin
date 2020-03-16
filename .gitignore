@@ -3,3 +3,7 @@
 *.iws
 target
 work
+.classpath
+.factorypath
+.project
+.settings
