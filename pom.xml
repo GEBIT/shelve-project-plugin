@@ -10,7 +10,7 @@
 
   <artifactId>shelve-project-plugin</artifactId>
   <name>Shelve Project Plugin</name>
-  <version>3.1</version>
+  <version>3.1-gebit1</version>
   <packaging>hpi</packaging>
   <url>https://github.com/jenkinsci/shelve-project-plugin</url>
 
